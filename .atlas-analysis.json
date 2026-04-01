@@ -1,0 +1,107 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "WPX — WordPress X-Ray Scanner",
+  "projectDescription": "A stealthy WordPress security scanner that uses Camoufox to bypass WAFs and Cloudflare, then performs fast asynchronous plugin enumeration, user discovery, and vulnerability detection.",
+  "theme": "aspen",
+  "primaryColor": "#7c7c80",
+  "lightColor": "#151c28",
+  "darkColor": "#f2f2f2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/basic-scanning",
+              "usage/enumeration-options",
+              "usage/output-and-logging"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/cli-reference",
+              "configuration/stealth-mode",
+              "configuration/waf-bypass"
+            ]
+          },
+          {
+            "group": "Data Management",
+            "pages": [
+              "data/plugin-catalog",
+              "data/wpscan-metadata",
+              "data/plugin-fetcher"
+            ]
+          },
+          {
+            "group": "Docker",
+            "pages": [
+              "docker/running-with-docker",
+              "docker/persisting-data"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Scan Modules",
+            "pages": [
+              "reference/plugin-detection",
+              "reference/user-enumeration",
+              "reference/vulnerability-api",
+              "reference/waf-bypass-engine"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "reference/troubleshooting",
+              "reference/legal-disclaimer"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "WAF and Cloudflare bypass using Camoufox headless browser with real browser fingerprinting",
+    "Asynchronous plugin brute-force scanning across ~110,000 historical and ~55,000 active plugins",
+    "Multi-method user enumeration: REST API, author archive probing, oEmbed, RSS feed, and passive HTML scan",
+    "WPScan Vulnerability Database integration for CVE lookup and version-aware vulnerability filtering",
+    "WordPress version detection via meta generator and RSS feed with latest-version comparison",
+    "Theme detection with style.css metadata parsing and version confidence scoring",
+    "Multisite detection via wp-signup.php and wp-activate.php",
+    "Config backup file discovery with soft-404 baseline filtering",
+    "Stealth mode with configurable random delays and thread throttling",
+    "Docker support with named volumes for persistent WPScan metadata"
+  ],
+  "publicApiSurface": [
+    "wpx -u <URL> [options]",
+    "--api-key KEY",
+    "--enumerate / -e p,u,cb,t",
+    "--threads / -t N",
+    "--plugins-limit N",
+    "--full-scan",
+    "--users-limit N",
+    "--no-browser",
+    "--stealth [N]",
+    "--idle-timeout N",
+    "--quiet / -q",
+    "--output / -o FILE",
+    "--update",
+    "data/wpx_fetch_plugins.py --sort-by score|active_installs|downloaded",
+    "data/wpx_fetch_plugins.py --active-limit N --dead-limit N"
+  ]
+}

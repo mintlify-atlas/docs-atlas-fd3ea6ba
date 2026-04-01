@@ -1,0 +1,86 @@
+---
+title: "WPScan metadata"
+description: "Detection rules, fingerprints, and slug lists that WPX downloads from data.wpscan.org."
+keywords: ["wpscan metadata", "dynamic finders", "wp fingerprints", "metadata update", "wpx_data"]
+---
+
+WPX relies on a set of metadata files from [data.wpscan.org](https://data.wpscan.org) to detect plugins, identify WordPress versions, and find config backups. These files are downloaded automatically on first run and stored in the `.wpx_data/` directory.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `dynamic_finders.yml` | Detection rules for ~31,000 plugins — patterns used to identify a plugin from page source, HTTP headers, and file paths |
+| `plugins.txt` | WPScan's default list of ~1,500 plugin slugs, used as the fallback when no custom list is present |
+| `themes.txt` | Theme slugs for passive theme detection |
+| `config_backups.txt` | ~137 file path patterns for common WordPress config backup locations |
+| `db_exports.txt` | File path patterns for exposed database exports |
+| `wp_fingerprints.json` | WordPress core file hashes used to identify the exact WordPress version |
+| `metadata.json` | WordPress version release dates, used to show whether the detected version is current |
+
+All files are stored under `.wpx_data/` in the directory where you run WPX.
+
+---
+
+## Stale detection
+
+WPX checks the modification time of each metadata file at startup. If any file is **older than 30 days**, WPX prints a warning and recommends running `--update`.
+
+```
+[!] Some data files are older than 30 days or missing: .wpx_data/dynamic_finders.yml...
+[!] It is recommended to run: python3 wpx.py --update
+```
+
+You do not need to update before every scan. Monthly updates are sufficient for most use cases.
+
+---
+
+## Updating metadata
+
+### Local installation
+
+Force a re-download of all metadata files:
+
+```bash
+python3 wpx.py --update
+```
+
+This re-fetches every file in the list from `data.wpscan.org` and overwrites the local copies.
+
+### Docker
+
+Without a volume, Docker downloads metadata fresh on every container run. Use a named volume to persist the files between runs:
+
+```bash
+# Run a scan with persistent metadata
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx -u https://example.com
+
+# Force a metadata refresh
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+```
+
+<Tip>
+  Using a named Docker volume is the recommended approach. It avoids re-downloading several megabytes of data on every scan and keeps your detection rules consistent across runs.
+</Tip>
+
+---
+
+## How metadata is used at scan time
+
+<Steps>
+  <Step title="Download missing files">
+    At startup, WPX checks whether each file exists in `.wpx_data/`. Any missing file is downloaded before the scan begins.
+  </Step>
+  <Step title="Load dynamic finders">
+    `dynamic_finders.yml` is parsed into an in-memory dictionary keyed by plugin slug. Each entry contains regex patterns that match plugin-specific strings in page source or HTTP headers.
+  </Step>
+  <Step title="Load plugin slugs">
+    `plugins.txt` is read as the fallback slug list. If a `plugins_full.txt` file is found in the expected locations, that file is used instead. See [Plugin catalog](/data/plugin-catalog) for the full resolution order.
+  </Step>
+  <Step title="Load config backup paths">
+    `config_backups.txt` is loaded as a list of file paths to probe when the `cb` enumeration token is active.
+  </Step>
+  <Step title="Load WordPress version data">
+    `metadata.json` is parsed to extract WordPress release dates, used to determine whether the detected version is current or outdated.
+  </Step>
+</Steps>

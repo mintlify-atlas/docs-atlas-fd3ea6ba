@@ -1,0 +1,118 @@
+---
+title: "Basic scanning"
+description: "Run your first WPX scan and understand the most common scanning patterns, from a quick check to a full plugin brute-force."
+---
+
+WPX requires a target URL and at minimum runs plugin enumeration, user enumeration, config backup checks, and theme detection. The sections below cover the most common ways to start a scan.
+
+<Note>
+  If you omit the URL scheme, WPX defaults to `https://`. For example, `example.com` is treated as `https://example.com`.
+</Note>
+
+## Common scan patterns
+
+### Basic scan
+
+The simplest scan runs all checks against a target with default settings: top 200 plugins, up to 10 author IDs probed, and all enumeration types enabled.
+
+<CodeGroup>
+```bash Python
+python3 wpx.py -u https://example.com
+```
+
+```bash Docker
+docker run ghcr.io/greg-randall/wpx -u https://example.com
+```
+</CodeGroup>
+
+This runs:
+- WAF bypass via Camoufox
+- WordPress version detection
+- Theme detection
+- Plugin brute-force (top 200 slugs)
+- User enumeration (author IDs 1–10)
+- Config backup file checks
+
+### Vulnerability lookup
+
+To cross-reference detected plugins against the WPScan Vulnerability Database, provide a WPScan API key. WPX will report known CVEs and fixed versions for each detected plugin.
+
+<CodeGroup>
+```bash Python
+python3 wpx.py -u https://example.com --api-key YOUR_KEY
+```
+
+```bash Docker
+docker run ghcr.io/greg-randall/wpx -u https://example.com --api-key YOUR_KEY
+```
+</CodeGroup>
+
+Get a free API key at [wpscan.com](https://wpscan.com). The free tier allows a limited number of API requests per day.
+
+### Scan top 500 plugins
+
+By default, WPX scans the top 200 most popular plugins. Use `--plugins-limit` to increase the depth without committing to a full scan.
+
+<CodeGroup>
+```bash Python
+python3 wpx.py -u https://example.com --plugins-limit 500
+```
+
+```bash Docker
+docker run ghcr.io/greg-randall/wpx -u https://example.com --plugins-limit 500
+```
+</CodeGroup>
+
+Plugin slugs are ranked by popularity score (a geometric mean of active installs × total downloads). Scanning the top 500 catches the vast majority of plugins found in the wild.
+
+### Full plugin scan
+
+`--full-scan` tells WPX to iterate through its entire plugin catalog — over 50,000 slugs, including historical and removed plugins.
+
+<CodeGroup>
+```bash Python
+python3 wpx.py -u https://example.com --full-scan
+```
+
+```bash Docker
+docker run ghcr.io/greg-randall/wpx -u https://example.com --full-scan
+```
+</CodeGroup>
+
+<Warning>
+  A full scan makes 50,000+ HTTP requests. Depending on your thread count and the target's response time, this can take several hours to complete. Use `--plugins-limit` for faster results in most situations.
+</Warning>
+
+### Skip WAF bypass
+
+By default, WPX uses Camoufox to solve Cloudflare and WAF challenges before scanning. If the target has no WAF or you want to connect directly (e.g., for a local test environment), use `--no-browser` to skip the browser step.
+
+<CodeGroup>
+```bash Python
+python3 wpx.py -u https://example.com --no-browser
+```
+
+```bash Docker
+docker run ghcr.io/greg-randall/wpx -u https://example.com --no-browser
+```
+</CodeGroup>
+
+<Info>
+  `--no-browser` skips Camoufox entirely and issues requests directly via `curl_cffi`. The scan will still mimic browser TLS fingerprints, but will not solve JavaScript challenges.
+</Info>
+
+## Refreshing WPScan metadata
+
+WPX downloads fingerprint rules and vulnerability metadata from `data.wpscan.org`. These files are cached locally and are considered stale after 30 days. Run `--update` to force a refresh before scanning:
+
+<CodeGroup>
+```bash Python
+python3 wpx.py --update
+```
+
+```bash Docker
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+```
+</CodeGroup>
+
+WPX will warn you at scan start if any metadata files are missing or older than 30 days. You can also mount a named Docker volume (`wpx-data`) to persist metadata between runs and avoid re-downloading on every container start.

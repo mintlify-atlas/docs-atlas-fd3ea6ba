@@ -1,0 +1,114 @@
+---
+title: "Stealth mode"
+description: "Add randomized per-request delays and reduce thread concurrency to avoid rate limiting and WAF/IDS detection."
+keywords: ["stealth", "rate limiting", "delays", "IDS", "WAF detection", "evasion"]
+---
+
+Stealth mode adds a random delay before each request and caps concurrency to a
+single thread. This makes WPX's traffic pattern look more like a human browsing
+the site and less like an automated scanner, which helps avoid triggering
+rate-limiting rules, IDS signatures, and WAF behavioral detection.
+
+## The `--stealth` flag
+
+```bash
+python3 wpx.py -u https://example.com --stealth [N]
+```
+
+`N` is an optional floating-point multiplier that controls the delay ceiling.
+If you omit `N`, WPX uses the default value of `1.5`.
+
+### Delay range
+
+| Component | Value |
+|-----------|-------|
+| Floor     | Always `1` second |
+| Ceiling   | `2 × N` seconds |
+
+With the default `N=1.5`, each request waits a random duration between **1 and
+3 seconds**. With `--stealth 5`, the ceiling rises to **10 seconds** (1–10s
+range).
+
+### Thread cap
+
+When `--stealth` is set and you have not explicitly passed `--threads`, WPX
+overrides the thread count to **1**. This prevents bursts of concurrent
+requests from undermining the per-request delays.
+
+If you pass both `--stealth` and `--threads` explicitly, WPX respects your
+`--threads` value — the cap only applies when threads are at the default of 20.
+
+### Idle timeout auto-raise
+
+Because stealth delays can extend the time between responses, WPX automatically
+raises `--idle-timeout` when stealth is active. The minimum idle timeout is
+calculated as:
+
+```
+min_idle_timeout = int(stealth * 2) + 20
+```
+
+For the default `N=1.5`, this sets the floor at **23 seconds**. For `--stealth
+5`, it sets the floor at **30 seconds**. If your `--idle-timeout` is already
+above the calculated minimum, it is left unchanged.
+
+## Examples
+
+### Default stealth
+
+Add 1–3 second delays with a single thread:
+
+```bash
+python3 wpx.py -u https://example.com --stealth
+```
+
+WPX prints a confirmation line showing the active delay range:
+
+```
+[*] Stealth mode: threads capped at 1, delays 1.0–3.0s
+```
+
+### Custom delay ceiling
+
+Increase the ceiling to 10 seconds for more conservative pacing:
+
+```bash
+python3 wpx.py -u https://example.com --stealth 5
+```
+
+### Explicit thread count with stealth
+
+Use 3 threads while keeping stealth delays active:
+
+```bash
+python3 wpx.py -u https://example.com --stealth --threads 3
+```
+
+<Note>
+  Passing `--threads` explicitly disables the automatic thread cap. WPX will
+  use exactly the thread count you specify.
+</Note>
+
+## When to use stealth mode
+
+**Rate limiting** — If the target returns `429 Too Many Requests` or starts
+dropping connections during a scan, stealth mode gives the server time to
+recover between requests.
+
+**IDS/WAF behavioral detection** — Intrusion detection systems and WAF
+behavioral engines often flag scanners by request velocity. Stealth mode keeps
+WPX's request rate well below the thresholds that trigger most rules.
+
+**Long-running scans on sensitive targets** — When scanning a production site
+during business hours, stealth mode reduces the risk of causing visible
+performance degradation.
+
+<Tip>
+  Combine `--stealth` with `--quiet` for clean long-running scans. Quiet mode
+  suppresses the banner and status messages so the output file contains only
+  findings, making it easier to review after the scan completes.
+
+  ```bash
+  python3 wpx.py -u https://example.com --stealth --quiet -o results.txt
+  ```
+</Tip>

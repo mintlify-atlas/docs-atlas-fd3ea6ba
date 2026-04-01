@@ -1,97 +1,70 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: WPX — WordPress X-Ray Scanner
+description: A stealthy WordPress security scanner with WAF bypass, async plugin enumeration, user discovery, and vulnerability detection.
 ---
 
-## Setting up
+WPX (WordPress X-Ray) is an open-source security scanner built for authorized WordPress penetration testing. It uses Camoufox — a high-fidelity headless browser — to solve Cloudflare and WAF challenges, then mirrors the session to perform fast, asynchronous enumeration of plugins, themes, users, and vulnerabilities.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install WPX via pip or run it with Docker — no manual dependency wrangling required.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first scan in under two minutes with a single command.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="CLI Reference" icon="terminal" href="/configuration/cli-reference">
+    Every flag, option, and default value for the main scanner and plugin fetcher.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Docker" icon="docker" href="/docker/running-with-docker">
+    Pull and run WPX with no Python setup required using the official Docker image.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What WPX does
 
-Everything you need to create world-class documentation.
+WPX automates the reconnaissance phase of a WordPress security assessment. A single command launches a multi-stage scan:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+<Steps>
+  <Step title="WAF bypass">
+    Camoufox opens a real browser, solves any JS challenge or CAPTCHA, and extracts the session cookies and User-Agent. The mirrored `curl_cffi` session then inherits these tokens so every subsequent request looks indistinguishable from the browser that solved the challenge.
+  </Step>
+  <Step title="Passive discovery">
+    WPX fetches the homepage and a known-404 page, then parses HTML for plugin paths, theme slugs, and author links — with no additional requests.
+  </Step>
+  <Step title="Active enumeration">
+    Plugin slugs from a ranked list of up to 110,000 plugins are brute-forced concurrently. WPX checks HTTP 200 and 403 responses to confirm presence, then fetches readme files and asset query strings to detect versions.
+  </Step>
+  <Step title="User enumeration">
+    Five independent techniques — REST API, author archive probing, oEmbed, RSS feed, and passive HTML — are tried in sequence. Blocked methods are recorded as security improvements.
+  </Step>
+  <Step title="Vulnerability lookup">
+    If you provide a WPScan API key, WPX queries the WPScan Vulnerability Database for every detected plugin and filters results to only the CVEs that apply to the installed version.
+  </Step>
+</Steps>
 
-## Need inspiration?
+## Key features
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="WAF & Cloudflare bypass" icon="shield-halved" href="/configuration/waf-bypass">
+    Real browser fingerprinting via Camoufox with TLS session mirroring through curl_cffi.
+  </Card>
+  <Card title="Plugin enumeration" icon="puzzle-piece" href="/reference/plugin-detection">
+    Covers ~55,000 active and ~110,000 historical plugins with confidence-scored version detection.
+  </Card>
+  <Card title="User enumeration" icon="users" href="/reference/user-enumeration">
+    Five independent techniques with per-method risk ratings and remediation recommendations.
+  </Card>
+  <Card title="Vulnerability database" icon="bug" href="/reference/vulnerability-api">
+    WPScan API integration with version-aware filtering to eliminate fixed CVEs.
+  </Card>
+  <Card title="Stealth mode" icon="eye-slash" href="/configuration/stealth-mode">
+    Configurable random delays and automatic thread throttling to avoid rate limiting.
+  </Card>
+  <Card title="Docker support" icon="docker" href="/docker/running-with-docker">
+    Run anywhere with no Python setup — persistent volumes keep metadata between scans.
+  </Card>
+</CardGroup>
+
+<Warning>
+  WPX is for **authorized security testing only**. Only scan WordPress sites you own or have explicit written permission to test. The developers are not responsible for misuse or any damage caused.
+</Warning>

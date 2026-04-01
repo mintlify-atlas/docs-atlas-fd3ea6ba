@@ -1,0 +1,241 @@
+---
+title: "User enumeration"
+description: "The five techniques WPX uses to discover WordPress usernames, their confidence levels, associated risk ratings, and how to remediate each leak."
+keywords: ["user enumeration", "wordpress users", "rest api", "author archive", "oembed", "rss feed", "wpx"]
+---
+
+WPX automatically runs user enumeration on every scan. It applies up to five techniques simultaneously, deduplicates results by login slug, and assigns a risk level based on which methods succeeded.
+
+## Techniques
+
+<AccordionGroup>
+  <Accordion title="Passive HTML scan — confidence 70%">
+    WPX scans the homepage HTML that was already fetched during the initial request. No additional HTTP requests are made.
+
+    WordPress templates frequently include `<a href="/author/<slug>/">` links in post metadata, bylines, and archive widgets. WPX extracts every unique author slug from these patterns.
+
+    ```
+    Found By: Passive HTML Scan
+    Confidence: 70%
+    ```
+
+    This technique yields login slugs but not numeric user IDs or display names.
+  </Accordion>
+
+  <Accordion title="REST API user enumeration — confidence 95%">
+    WPX sends a GET request to the WP REST API users endpoint:
+
+    ```
+    GET /wp-json/wp/v2/users
+    ```
+
+    On an unprotected installation, this returns a JSON array containing each user's numeric ID, login slug, and display name — the richest data source of any technique.
+
+    ```json
+    [
+      { "id": 1, "slug": "admin", "name": "Admin User" },
+      { "id": 2, "slug": "jim",   "name": "Jim Smith" }
+    ]
+    ```
+
+    ```
+    Found By: REST API User Enumeration
+    Confidence: 95%
+    ```
+
+    Risk level: **High** — this is the most exploitable leak because it returns verified login credentials in a single unauthenticated request.
+  </Accordion>
+
+  <Accordion title="Author archive (?author=N) — confidence 85%">
+    WPX probes `/?author=1` through `/?author=N` in sequence, where N is controlled by `--users-limit` (default: 10).
+
+    WordPress responds to each valid author ID with a redirect whose `Location` header contains the canonical author URL:
+
+    ```
+    HTTP/1.1 301 Moved Permanently
+    Location: https://example.com/author/jimbo/
+    ```
+
+    WPX reads the `Location` header directly without following the redirect, extracting the slug from the path. On installations that serve author pages without redirecting, WPX also parses the slug from inline page HTML.
+
+    ```
+    Found By: Author Archive (?author=N)
+    Confidence: 85%
+    ```
+
+    Risk level: **High** — enumerating sequential author IDs requires no authentication and reveals login slugs directly.
+
+    Override the probe range:
+
+    ```bash
+    python3 wpx.py -u https://example.com --users-limit 25
+    ```
+  </Accordion>
+
+  <Accordion title="oEmbed author leak — confidence 70%">
+    WPX scans the homepage for a post URL (any internal link that is not under `/wp-content/`, `/wp-admin/`, or `/wp-json/`), then queries the oEmbed endpoint using that URL:
+
+    ```
+    GET /wp-json/oembed/1.0/embed?url=<post-url>&format=json
+    ```
+
+    The response includes an `author_name` field. WPX extracts this as a display name. Because the oEmbed endpoint returns a display name rather than a login slug, this technique does not yield a login credential directly.
+
+    ```
+    Found By: oEmbed Author Leak
+    Confidence: 70%
+    ```
+
+    Risk level: **Medium** — leaks a display name, which may differ from the login slug.
+  </Accordion>
+
+  <Accordion title="RSS feed author leak — confidence 75%">
+    WPX fetches `/feed/` and parses two XML tag patterns:
+
+    - `<dc:creator><![CDATA[name]]></dc:creator>`
+    - `<author>name</author>`
+
+    All unique author names extracted from the feed are recorded.
+
+    ```
+    Found By: RSS Feed Author Leak
+    Confidence: 75%
+    ```
+
+    Risk level: **Low** — the RSS feed leaks display names, not login slugs. The information is lower-value but still contributes to an attacker's profile of the site's users.
+  </Accordion>
+</AccordionGroup>
+
+## Risk levels
+
+| Risk | Triggered by | Why it matters |
+|------|--------------|----------------|
+| High | REST API or Author Archive | Returns verified login slugs — directly usable in credential attacks |
+| Medium | oEmbed | Returns a display name that may match the login slug |
+| Low | RSS feed or passive HTML | Returns display names; lower correlation to actual login credentials |
+
+## Disabling enumeration
+
+To skip user enumeration entirely, use `-e` and omit the `u` token. For example, to scan only plugins and config backups:
+
+```bash
+python3 wpx.py -u https://example.com -e p,cb
+```
+
+To limit the author ID probe range without disabling other techniques:
+
+```bash
+python3 wpx.py -u https://example.com --users-limit 5
+```
+
+Setting `--users-limit 0` disables only the author archive probe while leaving REST API, oEmbed, and RSS techniques active.
+
+## Example output
+
+```
+[+] User Enumeration
+ | Status: Vulnerable
+ | 7 user(s) found via leakage
+ |
+ | Users Discovered:
+ |   • admin (ID: 1)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |   • jim (ID: 2)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |   • jimmothy (ID: 5)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |   • jimena (ID: 12)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |   • jimberta (ID: 18)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |   • jimbo (ID: 3)
+ |     Found By: Author Archive (?author=N)
+ |     Confidence: 85%
+ |   • jimtastic (ID: 9)
+ |     Found By: Author Archive (?author=N)
+ |     Confidence: 85%
+ |
+ | Risk Level: High
+ | Recommendation: Restrict the /wp/v2/users REST API endpoint to authenticated users only.
+ |   Block ?author= redirects and disable author archive pages via your security plugin.
+```
+
+## Remediation
+
+WPX reports remediation guidance alongside results. The specific recommendation depends on which techniques succeeded:
+
+<AccordionGroup>
+  <Accordion title="REST API leak">
+    Restrict the `/wp/v2/users` endpoint to authenticated requests. Add the following to your theme's `functions.php` or a custom plugin:
+
+    ```php
+    add_filter( 'rest_endpoints', function( $endpoints ) {
+        if ( isset( $endpoints['/wp/v2/users'] ) ) {
+            foreach ( $endpoints['/wp/v2/users'] as $key => $endpoint ) {
+                $endpoints['/wp/v2/users'][$key]['permission_callback'] = function() {
+                    return current_user_can( 'list_users' );
+                };
+            }
+        }
+        return $endpoints;
+    });
+    ```
+
+    Security plugins such as Wordfence and iThemes Security offer toggle options for this restriction.
+  </Accordion>
+
+  <Accordion title="Author archive leak">
+    Block `?author=` query string redirects at the server or application level, and disable author archive pages if you do not need them:
+
+    ```php
+    // Redirect ?author= requests to homepage to prevent slug enumeration
+    add_action( 'template_redirect', function() {
+        if ( isset( $_GET['author'] ) ) {
+            wp_redirect( home_url(), 301 );
+            exit;
+        }
+    });
+    ```
+
+    In Nginx, block at the server level:
+
+    ```nginx
+    if ($query_string ~* "author=\d+") {
+        return 403;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="RSS feed leak">
+    Filter author display names out of feed output:
+
+    ```php
+    add_filter( 'the_author', '__return_empty_string' );
+    add_filter( 'the_content_feed', function( $content ) {
+        return $content; // Remove or sanitize dc:creator here if needed
+    });
+    ```
+
+    Alternatively, disable the RSS feed entirely if your site does not use it.
+  </Accordion>
+
+  <Accordion title="oEmbed leak">
+    Restrict or disable the oEmbed endpoint:
+
+    ```php
+    // Remove oEmbed discovery links
+    remove_action( 'wp_head', 'wp_oembed_add_discovery_links' );
+
+    // Disable the REST API oEmbed endpoint
+    add_filter( 'rest_endpoints', function( $endpoints ) {
+        unset( $endpoints['/oembed/1.0/embed'] );
+        return $endpoints;
+    });
+    ```
+  </Accordion>
+</AccordionGroup>

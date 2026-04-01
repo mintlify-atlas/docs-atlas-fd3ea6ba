@@ -1,0 +1,156 @@
+---
+title: "Plugin detection"
+description: "How WPX discovers and fingerprints WordPress plugins — from passive HTML parsing to full brute-force enumeration across 110,000 known slugs."
+keywords: ["plugin detection", "wordpress plugins", "brute force", "version detection", "dynamic finders", "wpx"]
+---
+
+WPX uses a two-phase approach to plugin detection: a passive scan that costs zero extra requests, followed by an active brute-force that confirms presence through direct HTTP probes.
+
+## Phase 1 — Passive detection
+
+When WPX fetches the homepage, it immediately scans the HTML for `/wp-content/plugins/<slug>/` URL patterns — asset references, inline scripts, and stylesheet links that browsers load when rendering the page.
+
+```
+Found By: Urls In Homepage (Passive Detection)
+```
+
+To filter out false positives caused by WordPress themes or page builders that reference plugin paths even when those plugins are absent, WPX also fetches a known-nonexistent canary URL:
+
+```
+/wp-content/plugins/this-plugin-does-not-exist-xyz123/
+```
+
+<Note>
+  The canary URL is a deliberate 404 probe. WPX compares which plugin slugs appear in the homepage HTML against which also appear in the 404 response body. Slugs that appear in both are marked `confirmed_by: Urls In 404 Page (Passive Detection)` — WordPress injects them into every page regardless of context, so they are high-confidence finds. Slugs that appear only on the homepage are still reported but without that secondary confirmation.
+</Note>
+
+Any slug matching `/wp-content/plugins/<slug>/` is validated against the pattern `^[a-z0-9][a-z0-9\-]{1,}$` before being recorded. The canary slug itself is always excluded from results.
+
+## Phase 2 — Active brute-force
+
+After passive scanning, WPX sends HEAD or GET requests directly to `/wp-content/plugins/<slug>/` for each slug in the active list. Both HTTP `200` and HTTP `403` responses confirm the plugin is present — `403` means WordPress (or the server) recognizes the directory but has forbidden directory listing, which is still a positive signal.
+
+```
+Found By: Known Locations (Aggressive Detection)
+```
+
+The async engine runs up to 20 concurrent requests by default, reporting progress as it goes:
+
+```
+[*] Brute-forcing 200 plugins with 20 threads...
+[*] Brute-forcing plugins - (200 / 200) 100.00%
+[i] Found 6 plugins.
+```
+
+## Scan depth options
+
+<Tabs>
+  <Tab title="Default (200 slugs)">
+    ```bash
+    python3 wpx.py -u https://example.com
+    ```
+    Scans the top 200 most-installed plugins. Covers the vast majority of real-world installations without generating excessive traffic.
+  </Tab>
+  <Tab title="Custom limit">
+    ```bash
+    python3 wpx.py -u https://example.com --plugins-limit 500
+    ```
+    Scan any number of top-ranked plugins. The list is ordered by popularity score (geometric mean of active installs × total downloads).
+  </Tab>
+  <Tab title="Full scan">
+    ```bash
+    python3 wpx.py -u https://example.com --full-scan
+    ```
+    Probes every plugin slug in WPX's catalog — approximately 110,000 total, including ~55,000 currently active plugins and a full historical archive of closed and removed plugins.
+
+    <Warning>
+      A full scan issues tens of thousands of HTTP requests. It can take several hours depending on your thread count and the target server's response speed. Use `--stealth` to reduce detection risk on sensitive targets.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Detection rules — dynamic_finders.yml
+
+WPX ships with detection rules sourced from WPScan's `dynamic_finders.yml`. At startup, WPX loads these rules and reports the count:
+
+```
+[*] Loading dynamic finders...
+[*] Loaded 31021 plugin detection rules.
+```
+
+Each rule maps a plugin slug to one or more detection methods. The rules drive both passive and active version detection (see below). WPX downloads the latest `dynamic_finders.yml` from `data.wpscan.org` and caches it locally; use `--update` to force a refresh.
+
+## Version detection
+
+After WPX identifies a plugin, it attempts to determine which version is installed. Three detection methods are tried in order:
+
+<Steps>
+  <Step title="QueryParameter (passive)">
+    WPX re-examines the already-fetched homepage HTML for asset URLs belonging to the plugin. If a `<link>` or `<script>` tag references a file under `/plugins/<slug>/` and the URL includes a `?ver=` query string, the version is extracted from that parameter.
+
+    ```html
+    <!-- WPX reads this and extracts ver=6.8.0 -->
+    <script src="/wp-content/plugins/my-plugin/assets/app.js?ver=6.8.0"></script>
+    ```
+
+    This method requires no extra HTTP requests and reports `100%` confidence when a valid version string is found.
+
+    ```
+    Version: 6.8.0 (100% confidence)
+    Found By: QueryParameter (Passive Detection)
+    ```
+  </Step>
+  <Step title="HeaderPattern (passive)">
+    Some plugins inject version information into HTTP response headers. The `HeaderPattern` rules define which header name to inspect and a regex pattern to extract the version from its value.
+
+    ```
+    Version: 3.2.1 (100% confidence)
+    Found By: HeaderPattern (Passive Detection)
+    ```
+
+    Header inspection is case-insensitive and also requires no extra requests.
+  </Step>
+  <Step title="Readme — Stable Tag (aggressive)">
+    If neither passive method yields a version, WPX fetches the plugin's `readme.txt` file and extracts the `Stable tag:` field.
+
+    ```
+    GET /wp-content/plugins/wordpress-seo/readme.txt
+    ```
+
+    A successful match produces `100%` confidence:
+
+    ```
+    Version: 27.0 (100% confidence)
+    Found By: Readme - Stable Tag (Aggressive Detection)
+     - https://example.com/wp-content/plugins/wordpress-seo/readme.txt
+    ```
+  </Step>
+</Steps>
+
+If no version can be determined by any method, the plugin is still reported with `Version: Unknown`.
+
+## Example output
+
+The following shows detected plugins as they appear in WPX scan results:
+
+```
+[+] wordpress-seo
+ | Location: https://example.com/wp-content/plugins/wordpress-seo/
+ | Found By: Known Locations (Aggressive Detection)
+ | Version: 27.0 (100% confidence)
+ | Found By: Readme - Stable Tag (Aggressive Detection)
+ |  - https://example.com/wp-content/plugins/wordpress-seo/readme.txt
+
+[+] akismet
+ | Location: https://example.com/wp-content/plugins/akismet/
+ | Found By: Known Locations (Aggressive Detection)
+
+[+] redirection
+ | Location: https://example.com/wp-content/plugins/redirection/
+ | Found By: Known Locations (Aggressive Detection)
+ | Version: 5.7.3 (100% confidence)
+ | Found By: Readme - Stable Tag (Aggressive Detection)
+ |  - https://example.com/wp-content/plugins/redirection/readme.txt
+```
+
+Plugins found passively (from homepage HTML) display `Urls In Homepage (Passive Detection)` as their `Found By` value. Plugins confirmed by the 404 canary cross-check additionally list `Urls In 404 Page (Passive Detection)` under `Confirmed By`.

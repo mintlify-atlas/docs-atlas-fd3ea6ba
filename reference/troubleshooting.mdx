@@ -1,0 +1,174 @@
+---
+title: "Troubleshooting"
+description: "Solutions for common errors and unexpected behavior when running WPX."
+---
+
+<Tip>
+  If you're unsure whether an issue is caused by WAF detection or Camoufox itself, run the same scan with `--no-browser` first. A direct session that works confirms the problem is in the browser/bypass layer; one that also fails points to the WAF blocking your requests outright.
+</Tip>
+
+<AccordionGroup>
+
+  <Accordion title='"No headers based on this input" error from browserforge'>
+    **Cause:** browserforge cannot generate a fingerprint for the screen size it detects. This commonly happens on WSL and headless Linux environments where the virtual display is set to 640×480 — below the minimum resolution present in browserforge's training data.
+
+    WPX works around this by explicitly passing a screen size of 1280×720–1920×1080 to Camoufox:
+
+    ```python
+    screen = Screen(min_width=1280, min_height=720, max_width=1920, max_height=1080)
+    ```
+
+    If you still see this error after updating to the latest version of WPX, please [report it as a bug](https://github.com/greg-randall/wpx/issues).
+
+    **Workaround:** Use `--no-browser` to skip the WAF bypass entirely and connect directly:
+
+    ```bash
+    python3 wpx.py -u https://example.com --no-browser
+    ```
+  </Accordion>
+
+  <Accordion title="Camoufox fails to launch">
+    When Camoufox fails to start, WPX prints a diagnostic block showing the error type, message, traceback, and the installed versions of `camoufox`, `browserforge`, and `playwright`.
+
+    Check the versions first:
+
+    ```bash
+    pip show camoufox browserforge playwright
+    ```
+
+    If the Camoufox browser binary has not been downloaded yet, fetch it manually:
+
+    ```bash
+    python3 -m camoufox fetch
+    ```
+
+    If the browser still won't launch, use `--no-browser` to fall back to a direct session and continue scanning:
+
+    ```bash
+    python3 wpx.py -u https://example.com --no-browser
+    ```
+  </Accordion>
+
+  <Accordion title="WAF bypass completes but the scan still gets blocked">
+    After Camoufox solves the WAF challenge, WPX tests the mirrored session with a request to the target. If that test returns a non-200 status code, WPX reports: `Mirror session failed with status <N> — WAF may still be blocking.`
+
+    This means the WAF accepted the challenge solution but is still blocking the subsequent curl_cffi requests — possibly due to rate limiting, IP reputation, or TLS fingerprint mismatch.
+
+    Try these options:
+
+    - **Slow down requests** with `--stealth` to add random delays between each request:
+
+      ```bash
+      python3 wpx.py -u https://example.com --stealth
+      ```
+
+      For more aggressive slowing, pass a higher multiplier (e.g., `--stealth 5` produces 1–10 second delays):
+
+      ```bash
+      python3 wpx.py -u https://example.com --stealth 5
+      ```
+
+    - **Skip the bypass** with `--no-browser` to test whether the site blocks direct requests at all. If `--no-browser` succeeds, the issue is in how the bypass session is being mirrored:
+
+      ```bash
+      python3 wpx.py -u https://example.com --no-browser
+      ```
+  </Accordion>
+
+  <Accordion title="Scan aborted: ScanIdleTimeout">
+    WPX raises `ScanIdleTimeout` when no response is received from the server for `N` consecutive seconds (default: 60). This usually means the server has started silently dropping or delaying requests — a common WAF rate-limit response.
+
+    **Increase the timeout** to give the server more time to respond:
+
+    ```bash
+    python3 wpx.py -u https://example.com --idle-timeout 120
+    ```
+
+    **Disable the timeout** entirely if you want WPX to wait indefinitely:
+
+    ```bash
+    python3 wpx.py -u https://example.com --idle-timeout 0
+    ```
+
+    <Note>
+      When `--stealth` is active, WPX automatically raises the idle timeout to `int(stealth * 2) + 20` seconds minimum to prevent false timeouts from the intentional delays. For example, `--stealth 5` sets a minimum idle timeout of 30 seconds.
+    </Note>
+  </Accordion>
+
+  <Accordion title="No plugins found or very few plugins detected">
+    By default, WPX checks only the top 200 plugins by popularity. If the target is running less common plugins, they will be missed.
+
+    **Increase the scan limit** to cover more plugins:
+
+    ```bash
+    python3 wpx.py -u https://example.com --plugins-limit 500
+    python3 wpx.py -u https://example.com --plugins-limit 5000
+    ```
+
+    **Run a full scan** to check every known plugin slug (50,000+). This can take several hours depending on thread count and server responsiveness:
+
+    ```bash
+    python3 wpx.py -u https://example.com --full-scan
+    ```
+  </Accordion>
+
+  <Accordion title="Warning: data files are stale">
+    WPX warns you when files in `.wpx_data/` are older than 30 days or missing. Stale metadata means plugin detection rules and vulnerability data may be out of date.
+
+    Run the update command to refresh WPScan metadata:
+
+    ```bash
+    python3 wpx.py --update
+    ```
+
+    If you're using Docker with a persistent volume, run the update inside the same container:
+
+    ```bash
+    docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+    ```
+  </Accordion>
+
+  <Accordion title="User enumeration shows no users and no blocked methods">
+    If user enumeration completes with status `Unknown` — no users found and no methods reported as blocked — the site may be using a non-standard REST API URL that WPX didn't reach, or the homepage contains no author links.
+
+    Try enumerating users directly with `--no-browser` to rule out session issues:
+
+    ```bash
+    python3 wpx.py -u https://example.com --enumerate u --no-browser
+    ```
+
+    You can also check the REST API endpoint manually in your browser:
+
+    ```
+    https://example.com/wp-json/wp/v2/users
+    ```
+
+    If that URL returns a 404, the site may have moved the REST API to a custom path or disabled it entirely.
+  </Accordion>
+
+</AccordionGroup>
+
+## Getting diagnostic information
+
+When Camoufox fails to launch, WPX automatically prints a structured diagnostic block to help you identify the root cause:
+
+```
+── Camoufox launch failed ─────────────────────────────────────
+ Error type : <exception class>
+ Message    : <error message>
+
+ Traceback:
+   <full Python traceback>
+
+ Installed versions:
+   camoufox: <version or NOT INSTALLED>
+   browserforge: <version or NOT INSTALLED>
+   playwright: <version or NOT INSTALLED>
+
+ Diagnosis: <specific diagnosis if recognized>
+──────────────────────────────────────────────────────────────
+```
+
+The `Installed versions` section lets you quickly confirm whether the required packages are present. The `Diagnosis` section appears for known error patterns — for example, the `No headers based on this input` fingerprint error includes an explanation and a suggestion to report the issue.
+
+If you're filing a bug report, include the full diagnostic block.

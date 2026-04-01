@@ -1,0 +1,114 @@
+---
+title: "WAF bypass"
+description: "How WPX uses Camoufox to solve WAF JS challenges and mirror the resulting browser session for fast, authenticated scanning."
+keywords: ["WAF", "Cloudflare", "Camoufox", "bypass", "headless browser", "curl_cffi", "fingerprint"]
+---
+
+Many WordPress sites sit behind a Web Application Firewall (WAF) such as
+Cloudflare that presents JavaScript challenges to visitors before granting
+access. WPX uses [Camoufox](https://camoufox.com/) — a hardened Firefox build
+with realistic browser fingerprints — to solve these challenges automatically,
+then mirrors the resulting session to a fast `curl_cffi` HTTP client for the
+rest of the scan.
+
+## How it works
+
+<Steps>
+  <Step title="Launch Camoufox with a realistic screen size">
+    WPX opens a headless Camoufox browser and passes an explicit screen size
+    between **1280×720** and **1920×1080**. This range matches the training
+    data used by browserforge for fingerprint generation.
+
+    <Note>
+      WSL's virtual display defaults to 640×480, which is below the minimum
+      resolution in browserforge's training data and causes fingerprint
+      generation to fail. WPX hardcodes the screen size range to work around
+      this on all platforms.
+    </Note>
+  </Step>
+
+  <Step title="Navigate to the target and wait for network idle">
+    Camoufox navigates to the target URL and waits until the network is idle
+    (`wait_until="networkidle"`), signaling that the initial page load and any
+    redirect chains have completed.
+  </Step>
+
+  <Step title="Wait for WAF JS challenges to complete">
+    An additional **5-second wait** follows the network-idle event. This gives
+    WAF JavaScript challenges (such as Cloudflare's browser integrity check)
+    enough time to run, set cookies, and redirect to the real page.
+  </Step>
+
+  <Step title="Extract cookies and User-Agent from the browser context">
+    WPX reads all cookies from the Camoufox page context and captures the exact
+    User-Agent string that the browser presented to the server. These tokens
+    represent a validated, WAF-approved browser session.
+  </Step>
+
+  <Step title="Initialize a mirrored curl_cffi session">
+    A `curl_cffi` session is created with headers that exactly match the
+    Camoufox browser:
+
+    | Header | Value |
+    |--------|-------|
+    | `User-Agent` | Exact UA extracted from Camoufox |
+    | `Accept` | `text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8` |
+    | `Accept-Language` | `en-US,en;q=0.5` |
+    | `Upgrade-Insecure-Requests` | `1` |
+    | `Sec-Fetch-Dest` | `document` |
+    | `Sec-Fetch-Mode` | `navigate` |
+    | `Sec-Fetch-Site` | `none` |
+    | `Sec-Fetch-User` | `?1` |
+
+    The extracted cookies are passed with every subsequent request so the WAF
+    recognizes the session as already-validated.
+  </Step>
+
+  <Step title="Validate the session with a test GET request">
+    WPX makes a test GET request to the target URL. If the response status is
+    **200**, the mirror session is confirmed and the full scan begins. Any
+    other status code means the WAF is still blocking the session, and WPX
+    aborts with a diagnostic message.
+  </Step>
+</Steps>
+
+## Skipping the WAF bypass
+
+If the target does not require a WAF bypass — or if you want a faster scan
+without launching a headless browser — pass `--no-browser`:
+
+```bash
+python3 wpx.py -u https://example.com --no-browser
+```
+
+With `--no-browser`, WPX skips Camoufox entirely and initializes a direct
+`curl_cffi` session using a default Firefox User-Agent. The session is still
+validated with a test GET request before scanning begins.
+
+<Tabs>
+  <Tab title="With WAF bypass (default)">
+    ```bash
+    # Camoufox solves the challenge, session is mirrored
+    python3 wpx.py -u https://example.com
+    ```
+  </Tab>
+  <Tab title="Without WAF bypass">
+    ```bash
+    # Direct connection — no headless browser
+    python3 wpx.py -u https://example.com --no-browser
+    ```
+  </Tab>
+</Tabs>
+
+Use `--no-browser` when:
+
+- The target has no WAF or challenge page
+- You are scanning in an environment without a graphical display and cannot use Xvfb
+- You want faster scan startup for repeated test runs
+
+<Warning>
+  WAF bypass requires a graphical environment or a virtual display (Xvfb).
+  Running WPX inside Docker is the easiest option — the official image
+  configures Xvfb automatically. On bare Linux without a display server,
+  launch Xvfb manually or use `--no-browser` to skip Camoufox.
+</Warning>

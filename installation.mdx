@@ -1,0 +1,86 @@
+---
+title: Installation
+description: Install WPX via pip from source or run it instantly with Docker.
+keywords: [wpx, installation, pip, docker, camoufox, wordpress-xray]
+---
+
+WPX supports two installation paths. Use pip if you want to run it directly from your Python environment. Use Docker if you want to skip all dependency setup and run WPX with a single command.
+
+## System requirements
+
+| Requirement | Version |
+| ----------- | ------- |
+| Python      | >= 3.8  |
+| camoufox    | latest  |
+| curl\_cffi  | latest  |
+| lxml        | latest  |
+| PyYAML      | latest  |
+| packaging   | latest  |
+
+<Tabs>
+  <Tab title="pip install">
+    Install WPX from source using pip. This gives you the full tool including the plugin fetcher scripts.
+
+    <Steps>
+      <Step title="Clone the repository">
+        ```bash
+        git clone https://github.com/greg-randall/wpx.git
+        cd wpx
+        ```
+      </Step>
+      <Step title="Install the package">
+        This installs all Python dependencies listed in `pyproject.toml` and registers the `wpx` command on your PATH.
+
+        ```bash
+        pip install .
+        ```
+      </Step>
+      <Step title="Fetch the Camoufox browser">
+        Camoufox requires a one-time download of its browser binary before it can be used. Run this after installation:
+
+        ```bash
+        python3 -m camoufox fetch
+        ```
+
+        <Note>
+          You must complete this step before running your first scan. WPX uses Camoufox to solve WAF and Cloudflare challenges — the scanner will fail to launch the browser if the binary has not been downloaded.
+        </Note>
+      </Step>
+    </Steps>
+
+    After these steps, you can run WPX with either `wpx -u <URL>` or `python3 wpx.py -u <URL>` from inside the cloned directory.
+  </Tab>
+  <Tab title="Docker">
+    The Docker image at `ghcr.io/greg-randall/wpx` includes Python, all dependencies, and the Camoufox browser binary. No local Python setup is needed.
+
+    **Basic scan:**
+
+    ```bash
+    docker run ghcr.io/greg-randall/wpx -u https://example.com
+    ```
+
+    **Save results to your machine:**
+
+    ```bash
+    docker run -v $(pwd):/output ghcr.io/greg-randall/wpx -u https://example.com -o /output/results.txt
+    ```
+
+    **Persist WPScan metadata between runs (recommended):**
+
+    Without a volume, WPX re-downloads scan metadata on every container start. Mount a named volume to avoid this:
+
+    ```bash
+    docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx -u https://example.com
+    ```
+
+    **Refresh metadata manually when needed:**
+
+    ```bash
+    docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+    ```
+
+    <Note>
+      The Docker image pre-fetches the Camoufox browser binary and downloads WPScan metadata at build time, so the first scan starts immediately without any setup steps.
+    </Note>
+  </Tab>
+</Tabs>

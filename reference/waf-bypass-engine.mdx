@@ -1,0 +1,158 @@
+---
+title: "WAF bypass engine"
+description: "How WPX uses Camoufox and curl_cffi to solve Cloudflare and WAF JavaScript challenges, mirror the resulting browser session, and validate access before scanning."
+keywords: ["waf bypass", "camoufox", "cloudflare", "curl_cffi", "browser fingerprint", "wpx"]
+---
+
+WPX uses Camoufox — a hardened Firefox build designed for browser automation with realistic fingerprints — to solve WAF and Cloudflare JavaScript challenges. After the challenge completes, WPX extracts the resulting session tokens and mirrors them into a fast `curl_cffi` HTTP session for the rest of the scan.
+
+## How the bypass works
+
+<Steps>
+  <Step title="Launch Camoufox with a valid screen size">
+    WPX initializes Camoufox with an explicit `Screen` object:
+
+    ```python
+    screen = Screen(min_width=1280, min_height=720, max_width=1920, max_height=1080)
+    with Camoufox(headless=True, screen=screen) as browser:
+        page = browser.new_page()
+    ```
+
+    Passing a realistic screen size ensures browserforge can generate a valid browser fingerprint. Without this constraint, headless Linux environments (including WSL) often expose a 640×480 virtual display, which falls below the minimum resolution in browserforge's training data and causes fingerprint generation to fail.
+  </Step>
+
+  <Step title="Navigate and solve the challenge">
+    The browser navigates to the target URL and waits for the network to go idle:
+
+    ```python
+    page.goto(target_url, wait_until="networkidle")
+    ```
+
+    After the page loads, WPX sleeps for an additional 5 seconds to allow any WAF JavaScript challenge redirect to fully complete before extracting tokens.
+  </Step>
+
+  <Step title="Extract session tokens">
+    WPX collects cookies and the exact User-Agent string used by Camoufox:
+
+    ```python
+    cookies   = {c['name']: c['value'] for c in page.context.cookies()}
+    user_agent = page.evaluate("navigator.userAgent")
+    ```
+
+    These tokens represent a solved challenge session that WAFs will recognize as legitimate on subsequent requests.
+
+    ```
+    [*] Extracted User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20...
+    [*] Extracted 2 cookies.
+    ```
+  </Step>
+
+  <Step title="Build a mirrored curl_cffi session">
+    WPX creates a `curl_cffi` session that reproduces the exact browser headers, including the extracted User-Agent and cookies:
+
+    ```python
+    session.headers.update({
+        "User-Agent":                  user_agent,
+        "Accept":                      "text/html,application/xhtml+xml,...",
+        "Accept-Language":             "en-US,en;q=0.5",
+        "Upgrade-Insecure-Requests":   "1",
+        "Sec-Fetch-Dest":              "document",
+        "Sec-Fetch-Mode":              "navigate",
+        "Sec-Fetch-Site":              "none",
+        "Sec-Fetch-User":              "?1",
+    })
+    ```
+
+    `curl_cffi` also mirrors the underlying TLS handshake fingerprint (JA3/JA4), so the session looks like a real browser at both the HTTP and TCP layers.
+  </Step>
+
+  <Step title="Validate the session">
+    Before starting any scan work, WPX sends a GET request to the target and checks for HTTP 200:
+
+    ```
+    [*] Testing session...
+    [*] Session test status: 200
+    [*] Mirror session validated! We are through the WAF.
+    ```
+
+    If the session test returns anything other than 200, WPX warns that the WAF may still be blocking and reports the status code.
+  </Step>
+</Steps>
+
+## Mirrored headers
+
+The following headers are set on every request made by the mirrored session:
+
+| Header | Value |
+|--------|-------|
+| `User-Agent` | Exact string extracted from `navigator.userAgent` |
+| `Accept` | `text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8` |
+| `Accept-Language` | `en-US,en;q=0.5` |
+| `Upgrade-Insecure-Requests` | `1` |
+| `Sec-Fetch-Dest` | `document` |
+| `Sec-Fetch-Mode` | `navigate` |
+| `Sec-Fetch-Site` | `none` |
+| `Sec-Fetch-User` | `?1` |
+
+## Skipping the browser — `--no-browser`
+
+If the target does not use a WAF or you want a faster scan without launching a browser, use `--no-browser`:
+
+```bash
+python3 wpx.py -u https://example.com --no-browser
+```
+
+In this mode, WPX skips Camoufox entirely and connects directly using a default Firefox User-Agent:
+
+```
+Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0
+```
+
+The session is initialized without cookies and without TLS fingerprint mirroring. This works fine for targets that are not behind a challenge-based WAF.
+
+```
+[*] Initializing direct curl_cffi session (no WAF bypass)...
+[*] Direct session OK (site does not appear to require WAF bypass).
+```
+
+## When the bypass fails
+
+If Camoufox fails to launch or the WAF challenge cannot be solved, WPX prints a structured diagnostic and exits:
+
+```
+[!] ── Camoufox launch failed ─────────────────────────────────────
+[!]  Error type : SomeException
+[!]  Message    : <error message>
+[!]
+[!]  Traceback:
+[!]    ...
+[!]
+[!]  Installed versions:
+[!]    camoufox: 0.x.x
+[!]    browserforge: 0.x.x
+[!]    playwright: 1.x.x
+[!] ──────────────────────────────────────────────────────────────
+```
+
+If the error message contains `"No headers based on this input"`, WPX adds a specific diagnosis:
+
+```
+[!]  Diagnosis: browserforge could not find a fingerprint matching the
+[!]             screen size detected by camoufox. This commonly happens
+[!]             on WSL/headless Linux where the virtual display is very
+[!]             small (e.g. 640x480), below the minimum in the training
+[!]             data. WPX passes an explicit screen size to work around
+[!]             this — if you see this error, please report it.
+```
+
+<Note>
+  The WSL display size fix is already applied in WPX by default — the explicit `Screen(min_width=1280, ...)` constructor call prevents this error on standard headless Linux setups. If you see this message anyway, it likely indicates a package version mismatch between `camoufox` and `browserforge`. Check the installed versions reported in the diagnostic output and update both packages.
+</Note>
+
+## Display environment requirement
+
+Camoufox requires a working display environment to render pages and solve JavaScript challenges.
+
+<Note>
+  The official WPX Docker image ships with all required system dependencies and a pre-configured virtual display. When running WPX in Docker, no additional display setup is needed. If you run WPX outside Docker on a headless server, ensure a virtual display is available (for example, via `Xvfb`).
+</Note>

@@ -1,0 +1,124 @@
+---
+title: "Running with Docker"
+description: "Run WPX without installing Python or any dependencies — just Docker."
+keywords: ["docker", "wpx", "wordpress scanner", "container", "run"]
+---
+
+Docker is the easiest way to run WPX. The image bundles Python 3.11, all system libraries, a pre-fetched Camoufox browser, and pre-downloaded WPScan metadata. You don't need to install anything beyond Docker itself.
+
+## What's in the image
+
+The Docker image includes everything WPX needs to run:
+
+| Component | Details |
+|-----------|---------|
+| Runtime | Python 3.11 (slim base) |
+| XML/HTML parsing | `libxml2`, `libxslt` |
+| Browser dependencies | `libnss3`, `libgtk-3-0`, `libx11-xcb1`, `libxtst6`, `libxss1`, `libasound2`, `libdbus-glib-1-2` |
+| Camoufox | Pre-fetched headless browser for WAF bypass |
+| WPScan metadata | Pre-downloaded fingerprint and detection rules from `data.wpscan.org` |
+
+## Pull and run
+
+To scan a site, pass the target URL with `-u`:
+
+```bash
+docker run ghcr.io/greg-randall/wpx -u https://example.com
+```
+
+The image is pulled automatically on first use. Subsequent runs use the cached image.
+
+<Note>
+The container uses `ENTRYPOINT ["python3", "wpx.py"]`, so everything you append after the image name is passed directly to WPX as flags.
+</Note>
+
+## Pass flags to WPX
+
+All WPX flags work the same way in Docker — append them after the image name:
+
+```bash
+docker run ghcr.io/greg-randall/wpx -u https://example.com --api-key YOUR_KEY --threads 10
+```
+
+Common flag combinations:
+
+<CodeGroup>
+
+```bash Vulnerability scan
+docker run ghcr.io/greg-randall/wpx -u https://example.com --api-key YOUR_KEY
+```
+
+```bash Custom thread count
+docker run ghcr.io/greg-randall/wpx -u https://example.com --threads 5
+```
+
+```bash Plugin limit
+docker run ghcr.io/greg-randall/wpx -u https://example.com --plugins-limit 500
+```
+
+```bash Stealth mode
+docker run ghcr.io/greg-randall/wpx -u https://example.com --stealth
+```
+
+```bash Skip user enumeration
+docker run ghcr.io/greg-randall/wpx -u https://example.com -e p,cb,t
+```
+
+```bash Full plugin scan
+docker run ghcr.io/greg-randall/wpx -u https://example.com --full-scan
+```
+
+</CodeGroup>
+
+## Save results to your machine
+
+By default, output stays inside the container and is lost when it exits. Mount your current directory as `/output` to save results:
+
+```bash
+docker run -v $(pwd):/output ghcr.io/greg-randall/wpx -u https://example.com -o /output/results.txt
+```
+
+The `-o /output/results.txt` flag writes plain text output (no ANSI color codes) to the mounted path. The file appears in your current directory as `results.txt`.
+
+## Run a complete scan
+
+<Steps>
+  <Step title="Choose a target">
+    Identify the WordPress site you want to scan. You need authorization to test the target.
+  </Step>
+
+  <Step title="Run the scan">
+    Pull and run the image with your target URL:
+
+    ```bash
+    docker run ghcr.io/greg-randall/wpx -u https://example.com
+    ```
+
+    WPX will enumerate plugins and themes, detect the WordPress version, and list users.
+  </Step>
+
+  <Step title="Add a WPScan API key for vulnerability data">
+    To see known CVEs for discovered plugins, pass your WPScan API key:
+
+    ```bash
+    docker run ghcr.io/greg-randall/wpx -u https://example.com --api-key YOUR_KEY
+    ```
+
+    You can get a free API key at [wpscan.com](https://wpscan.com).
+  </Step>
+
+  <Step title="Save the output">
+    Add a volume mount and the `-o` flag to write results to disk:
+
+    ```bash
+    docker run -v $(pwd):/output ghcr.io/greg-randall/wpx \
+      -u https://example.com \
+      --api-key YOUR_KEY \
+      -o /output/results.txt
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+WPX is for authorized security testing only. Only scan sites you own or have explicit permission to test.
+</Warning>

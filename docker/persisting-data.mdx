@@ -1,0 +1,95 @@
+---
+title: "Persisting data between runs"
+description: "Use Docker volumes to avoid re-downloading WPScan metadata on every scan and to save output files to your machine."
+keywords: ["docker", "volume", "persist", "wpx data", "wpscan metadata", "output"]
+---
+
+By default, each `docker run` starts with a fresh container. WPX stores WPScan metadata (fingerprints, plugin detection rules, and vulnerability data) inside the container at `/app/.wpx_data`. When the container exits, that data is gone — and the next run re-downloads it from `data.wpscan.org`.
+
+Mounting Docker volumes solves both problems: one volume keeps the metadata across runs, another lets you save scan results to your machine.
+
+## Volume paths
+
+| Container path | Purpose |
+|----------------|---------|
+| `/app/.wpx_data` | WPScan metadata: `dynamic_finders.yml`, `plugins.txt`, and related scan data |
+| `/output` | Directory for saving scan result files written with `-o` |
+
+## Persist WPScan metadata
+
+Mount a named volume to `/app/.wpx_data` so WPX reuses downloaded metadata instead of fetching it on every run:
+
+```bash
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx -u https://example.com
+```
+
+On the first run, WPX writes the metadata to the `wpx-data` volume. Every subsequent run reads from the volume — startup is faster and you avoid unnecessary network traffic.
+
+<Tip>
+Name volumes descriptively (like `wpx-data`) so you can easily identify and reuse them across multiple scans.
+</Tip>
+
+## Update metadata
+
+WPScan's fingerprint and vulnerability data changes over time. To refresh the metadata stored in your volume, run WPX with `--update`:
+
+```bash
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+```
+
+This updates the files in the `wpx-data` volume in place. Your next scan will use the refreshed data.
+
+## Save output files
+
+To write scan results to your local machine, mount your current directory as `/output` and use the `-o` flag:
+
+```bash
+docker run -v $(pwd):/output ghcr.io/greg-randall/wpx -u https://example.com -o /output/results.txt
+```
+
+The `-o` flag writes plain text output (no ANSI color codes) to the path you specify. After the scan, `results.txt` appears in your current directory.
+
+## Combine both volumes
+
+Use both volume mounts together to persist metadata and save results in a single command:
+
+```bash
+docker run \
+  -v wpx-data:/app/.wpx_data \
+  -v $(pwd):/output \
+  ghcr.io/greg-randall/wpx \
+  -u https://example.com \
+  -o /output/results.txt
+```
+
+This is the recommended way to run WPX in Docker: metadata is cached across runs, and results are written to your machine.
+
+## Common volume workflows
+
+<CodeGroup>
+
+```bash First scan with persistence
+# Create the volume and run the first scan
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx -u https://example.com
+```
+
+```bash Subsequent scans (fast startup)
+# Reuse existing metadata volume
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx -u https://another-site.com
+```
+
+```bash Refresh metadata
+docker run -v wpx-data:/app/.wpx_data ghcr.io/greg-randall/wpx --update
+```
+
+```bash Full scan with API key, metadata, and saved output
+docker run \
+  -v wpx-data:/app/.wpx_data \
+  -v $(pwd):/output \
+  ghcr.io/greg-randall/wpx \
+  -u https://example.com \
+  --api-key YOUR_KEY \
+  -o /output/results.txt
+```
+
+</CodeGroup>

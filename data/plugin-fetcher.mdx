@@ -1,0 +1,128 @@
+---
+title: "Plugin fetcher"
+description: "Build and refresh WPX's plugin lists from the WordPress.org API, SVN repository, and Archive.org."
+keywords: ["plugin fetcher", "wpx_fetch_plugins", "plugins_active", "plugins_dead", "wordpress.org api"]
+---
+
+`data/wpx_fetch_plugins.py` builds the ranked plugin lists that WPX uses during scans. It combines three data sources to produce a comprehensive catalog of both active and historical plugins.
+
+<Note>
+  The fetcher is optional. WPX ships with pre-built `plugins_active.txt` and `plugins_dead.txt` files. You only need to run the fetcher if you want to refresh the lists or change the ranking or limits.
+</Note>
+
+---
+
+## Data sources
+
+<CardGroup cols={3}>
+  <Card title="WordPress.org API" icon="globe">
+    Fetches all currently active plugins with live install counts, download counts, and ratings.
+  </Card>
+  <Card title="SVN repository" icon="code-branch">
+    Scrapes the full list of ~150,000 slugs ever published to identify plugins that have been closed or removed.
+  </Card>
+  <Card title="Archive.org" icon="clock">
+    Recovers historical install counts for dead plugins that were removed before the first catalog run by parsing Wayback Machine snapshots.
+  </Card>
+</CardGroup>
+
+---
+
+## Basic usage
+
+```bash
+python3 data/wpx_fetch_plugins.py --sort-by score
+```
+
+This produces:
+
+- `data/plugins_active.txt` — top 5,000 active plugins ranked by popularity score
+- `data/plugins_dead.txt` — top 2,500 closed plugins ranked by historical install count
+
+---
+
+## Options
+
+<ParamField path="--sort-by" type="string" default="score">
+  How to rank active plugins. `score` uses the geometric mean of active install count × total download count. `active_installs` ranks by current install count. `downloaded` ranks by total all-time downloads.
+
+  Accepted values: `score`, `active_installs`, `downloaded`
+</ParamField>
+
+<ParamField path="--active-limit" type="number" default="5000">
+  Number of active plugin slugs to write to `plugins_active.txt`. Set to `0` to write all active plugins with no limit.
+</ParamField>
+
+<ParamField path="--dead-limit" type="number" default="2500">
+  Number of dead plugin slugs to write to `plugins_dead.txt`. Set to `0` to write all dead plugins with no limit.
+</ParamField>
+
+<ParamField path="--force" type="boolean">
+  Re-fetch everything from the WordPress.org API even if a fresh catalog already exists on disk.
+</ParamField>
+
+<ParamField path="--fetch-limit" type="number" default="0">
+  Stop fetching active plugins from the API after N plugins. Useful for testing without a full run. Set to `0` (default) to fetch all plugins.
+</ParamField>
+
+<ParamField path="--max-age" type="number" default="24">
+  Skip the WordPress.org API fetch if `plugins_catalog.json` is fresher than this many hours. Set to `0` to always fetch regardless of age.
+</ParamField>
+
+---
+
+## Examples
+
+```bash
+# Rebuild with default settings (top 5,000 active, top 2,500 dead)
+python3 data/wpx_fetch_plugins.py --sort-by score
+
+# Rank by install count instead of score
+python3 data/wpx_fetch_plugins.py --sort-by active_installs
+
+# Expand limits for a deeper scan
+python3 data/wpx_fetch_plugins.py --active-limit 10000 --dead-limit 5000
+
+# Write every known plugin slug with no limits
+python3 data/wpx_fetch_plugins.py --active-limit 0 --dead-limit 0
+
+# Force a fresh API fetch even if the catalog is recent
+python3 data/wpx_fetch_plugins.py --force
+```
+
+---
+
+## How dead plugins are ranked
+
+Dead plugins are sorted in priority order based on what data is available:
+
+1. **Known install count** — sorted by `active_installs` descending
+2. **Known download count only** — sorted by `downloaded` descending (used when install count is unavailable)
+3. **No popularity data, but dated** — sorted by SVN `Last-Modified` descending (most recently active first)
+4. **No data at all** — alphabetical
+
+---
+
+## The `archive.org-cache/` directory
+
+When the fetcher encounters a dead plugin with no install count in the catalog, it queries the Wayback Machine for a snapshot of the plugin's `wordpress.org/plugins/<slug>/` page taken just before the plugin was removed. It then parses the install count out of the snapshot HTML.
+
+Raw HTML snapshots are cached in `data/archive.org-cache/` — one file per plugin slug. Subsequent runs skip the network request for any slug that already has a cached file, so re-running the fetcher after a partial run is fast.
+
+A `.none` sentinel file is written for slugs where no Wayback Machine snapshot exists. These are also skipped on subsequent runs.
+
+<Info>
+  Archive.org enrichment requires `beautifulsoup4`. Install it with `pip install ".[dev]"` if you need this step.
+</Info>
+
+---
+
+## Outputs
+
+| File | Description |
+|------|-------------|
+| `data/plugins_active.txt` | Active slugs ranked by the chosen sort key, trimmed to `--active-limit` |
+| `data/plugins_dead.txt` | Dead slugs ranked by historical popularity, trimmed to `--dead-limit` |
+| `data/plugins_catalog.json` | Full metadata cache for all active plugins (installs, downloads, rating, dates) |
+| `data/plugins_dead.jsonl` | Append-only cache of dead plugin metadata; last entry per slug wins on load |
+| `data/archive.org-cache/` | Cached HTML snapshots from the Wayback Machine |

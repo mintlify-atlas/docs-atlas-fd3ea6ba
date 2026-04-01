@@ -1,0 +1,122 @@
+---
+title: "Output and logging"
+description: "Control WPX terminal output verbosity and save findings to a plain-text file using the --quiet and --output flags."
+---
+
+By default, WPX prints a banner, real-time status messages, progress bars, and all findings to the terminal with ANSI color codes. Two flags let you tighten up what gets printed and persist results to disk.
+
+## Flags
+
+**`-q / --quiet`** — suppresses the banner, status lines (prefixed `[*]`), and progress bars. Only findings (`[+]`) and warnings (`[!]`) are printed.
+
+**`-o / --output FILE`** — writes the full output to a plain-text file. ANSI color codes are stripped so the file is clean for storage, diffing, or piping into other tools.
+
+These flags are independent — you can use either or both together.
+
+## Examples
+
+### Quiet mode
+
+Run a scan with minimal terminal noise:
+
+```bash
+python3 wpx.py -u https://example.com -q
+```
+
+### Save findings to a file
+
+Write all output to `results.txt` while still displaying it in the terminal:
+
+```bash
+python3 wpx.py -u https://example.com --output results.txt
+```
+
+### Silent scan saving to file
+
+Suppress terminal output and write clean findings to a file — useful in CI pipelines or scheduled scans:
+
+```bash
+python3 wpx.py -u https://example.com --quiet --output results.txt
+```
+
+With Docker, mount a host directory to write the file outside the container:
+
+```bash
+docker run -v $(pwd):/output ghcr.io/greg-randall/wpx -u https://example.com --quiet -o /output/results.txt
+```
+
+## Output format
+
+WPX prefixes each line to indicate its type:
+
+| Prefix | Meaning |
+|--------|---------|
+| `[+]`  | Finding — a detected plugin, user, header, or vulnerability |
+| `[*]`  | Status — scan progress and informational steps |
+| `[!]`  | Warning — potential issue or non-fatal error |
+| `[i]`  | Info — supplementary detail (e.g., count of discovered items) |
+
+`--quiet` suppresses `[*]` and `[i]` lines, leaving only `[+]` and `[!]`.
+
+## Sample output
+
+The following is a representative scan result (colors stripped):
+
+```text
+[*] Scanning: https://example.com/
+[*] Started: 2026-03-26 13:57:13
+
+============================================================
+[*] WPX Scan Results for: https://example.com/
+============================================================
+
+[+] Headers
+ | Interesting Entries:
+ |  - server: Apache
+ |  - x-powered-by: PHP/8.3.23
+ | Found By: Headers (Passive Detection)
+ | Confidence: 100%
+
+[+] robots.txt found: https://example.com/robots.txt
+ | Interesting Entries:
+ |  - /wp-admin/
+ |  - /wp-admin/admin-ajax.php
+ | Found By: Robots Txt (Aggressive Detection)
+ | Confidence: 100%
+
+[+] WordPress version 6.7.1 identified (Outdated, latest: 6.7.2)
+ | Found By: Meta Generator (Passive Detection)
+ |  - https://example.com/, Match: 'WordPress 6.7.1'
+ | Confirmed By: Rss Generator (Aggressive Detection)
+ |  - https://example.com/feed/, Match: '<generator>https://wordpress.org/?v=6.7.1</generator>'
+
+[+] WordPress theme in use: flavor
+ | Location: https://example.com/wp-content/themes/flavor/
+ | Style Name: flavor
+ | Version: 2.1.0 (80% confidence)
+
+[+] wordpress-seo
+ | Location: https://example.com/wp-content/plugins/wordpress-seo/
+ | Found By: Known Locations (Aggressive Detection)
+ | Version: 27.0 (100% confidence)
+
+[+] User Enumeration
+ | Status: Vulnerable
+ | 7 user(s) found via leakage
+ |
+ | Users Discovered:
+ |   • admin (ID: 1)
+ |     Found By: REST API User Enumeration
+ |     Confidence: 95%
+ |
+ | Risk Level: High
+ | Recommendation: Restrict the /wp/v2/users REST API endpoint to authenticated users only.
+
+============================================================
+[+] Finished: 2026-03-26 13:58:02
+[+] Elapsed time: 0:00:48
+```
+
+<Note>
+  Output files written with `--output` always use plain text without ANSI codes, regardless of whether `--quiet` is set. This makes them safe to open in any text editor or process with standard Unix tools.
+</Note>

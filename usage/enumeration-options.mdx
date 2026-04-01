@@ -1,0 +1,105 @@
+---
+title: "Enumeration options"
+description: "Control exactly what WPX scans using the -e flag and related depth options for plugins, users, themes, and config backups."
+---
+
+The `-e / --enumerate` flag lets you run a subset of WPX's checks instead of the full default scan. You can combine tokens to scan exactly what you need.
+
+## Enumeration tokens
+
+| Token | What it scans |
+|-------|--------------|
+| `p`   | Plugin brute-force — probes plugin paths and detects installed versions |
+| `u`   | User enumeration — discovers WordPress usernames via REST API, author archives, oEmbed, and RSS feed |
+| `cb`  | Config backup files — checks for exposed `wp-config.php` backup copies |
+| `t`   | Theme detection — fetches active theme details including name, version, author, and description |
+
+When you omit `-e` entirely, WPX runs all four: `p`, `u`, `cb`, and `t`.
+
+## Examples
+
+### Plugins only
+
+Scan for installed plugins without running user enumeration, backup checks, or theme detection:
+
+```bash
+python3 wpx.py -u https://example.com -e p
+```
+
+### Users only
+
+Run only user enumeration. Useful when you already have plugin data and want to quickly assess username exposure:
+
+```bash
+python3 wpx.py -u https://example.com -e u
+```
+
+### Plugins and users
+
+Combine tokens with a comma — no spaces:
+
+```bash
+python3 wpx.py -u https://example.com -e p,u
+```
+
+### Plugins and config backups with vulnerability lookup
+
+Add `--api-key` to cross-reference detected plugins against the WPScan Vulnerability Database:
+
+```bash
+python3 wpx.py -u https://example.com -e p,cb --api-key KEY
+```
+
+Config backup checks probe for exposed `wp-config.php` copies (e.g., `wp-config.php.bak`, `wp-config.php~`). WPX checks 137 known backup path patterns.
+
+### Full plugin brute-force with more threads
+
+Run all 50,000+ plugin slugs with a higher thread count for faster throughput:
+
+```bash
+python3 wpx.py -u https://example.com -e p --full-scan --threads 50
+```
+
+<Warning>
+  `--full-scan` makes 50,000+ requests and can take several hours. Raising `--threads` speeds this up but increases load on the target server. Use carefully against production sites.
+</Warning>
+
+## Controlling plugin scan depth
+
+Two flags control how many plugin slugs WPX probes:
+
+**`--plugins-limit N`** — scan only the top N most popular plugins. The plugin list is ranked by a popularity score (geometric mean of active installs × downloads).
+
+```bash
+python3 wpx.py -u https://example.com -e p --plugins-limit 500
+```
+
+**`--full-scan`** — ignore the limit and scan every slug in the catalog (50,000+).
+
+```bash
+python3 wpx.py -u https://example.com -e p --full-scan
+```
+
+Without either flag, WPX defaults to scanning the top 200 plugins.
+
+## Controlling user enumeration depth
+
+`--users-limit N` sets how many sequential author IDs WPX probes via `?author=N` (default: 10). If you expect more users or want wider coverage:
+
+```bash
+python3 wpx.py -u https://example.com -e u --users-limit 50
+```
+
+WPX also tries the REST API (`/wp/v2/users`), oEmbed, and RSS feed in parallel with the author archive probe. `--users-limit` only controls the author ID range.
+
+## Controlling thread count
+
+`--threads N` (shorthand `-t`) sets how many concurrent HTTP workers to use (default: 20). A higher value speeds up plugin brute-force at the cost of more server load:
+
+```bash
+python3 wpx.py -u https://example.com -e p --threads 40
+```
+
+<Info>
+  If you use `--stealth`, threads are automatically capped at 1 and random delays are added between requests to reduce detection risk.
+</Info>

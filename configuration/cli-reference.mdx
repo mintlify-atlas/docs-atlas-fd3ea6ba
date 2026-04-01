@@ -1,0 +1,260 @@
+---
+title: "CLI reference"
+description: "Complete flag reference for wpx.py and the data/wpx_fetch_plugins.py plugin catalog fetcher."
+keywords: ["cli", "flags", "options", "arguments", "reference", "wpx"]
+---
+
+## Usage
+
+```bash
+python3 wpx.py -u <URL> [options]
+```
+
+### Full help output
+
+```
+Usage: python3 wpx.py -u <URL> [options]
+
+Target:
+  -u, --url URL           Target WordPress URL (required)
+  --api-key KEY           WPScan Vulnerability Database API key
+
+Enumeration:
+  -e, --enumerate OPTS    Comma-separated list of what to scan (default: all)
+                          p   Plugin brute-force + version detection
+                          u   User enumeration
+                          cb  Config backup files
+                          t   Theme version detection
+
+Scan Options:
+  -t, --threads N         Concurrent threads (default: 20)
+  --plugins-limit N       Scan top N plugins (default: 200)
+  --full-scan             Scan all available plugin slugs (50k+)
+  --users-limit N         Author IDs to probe via ?author=N (default: 10)
+  --no-browser            Skip WAF bypass, connect directly
+
+Output:
+  -q, --quiet             Findings only — suppress banner, status, progress
+  -o, --output FILE       Save plain-text output to FILE
+
+Misc:
+  --update                Force refresh of WPScan metadata files
+  -h, --help              Show this help
+
+Examples:
+  python3 wpx.py -u https://example.com
+  python3 wpx.py -u https://example.com -e u
+  python3 wpx.py -u https://example.com -e p,u --plugins-limit 500
+  python3 wpx.py -u https://example.com -e p,cb --api-key KEY --quiet
+  python3 wpx.py -u https://example.com -e p --full-scan --threads 50
+```
+
+---
+
+## Target
+
+<ParamField path="-u, --url" type="string" required>
+  Target WordPress URL. WPX prepends `https://` if no scheme is provided.
+</ParamField>
+
+<ParamField path="--api-key" type="string">
+  WPScan Vulnerability Database API key. When provided, WPX queries the WPScan
+  API for known vulnerabilities against every detected plugin.
+</ParamField>
+
+---
+
+## Enumeration
+
+<ParamField path="-e, --enumerate" type="string" default="p,u,cb,t">
+  Comma-separated list of scan modules to run. Omit the flag to run all modules.
+
+  | Token | Module |
+  |-------|--------|
+  | `p`   | Plugin brute-force and version detection |
+  | `u`   | User enumeration |
+  | `cb`  | Config backup file discovery |
+  | `t`   | Active theme version detection |
+
+  **Examples:**
+
+  ```bash
+  # Users only
+  python3 wpx.py -u https://example.com -e u
+
+  # Plugins and config backups
+  python3 wpx.py -u https://example.com -e p,cb
+  ```
+</ParamField>
+
+---
+
+## Scan options
+
+<ParamField path="-t, --threads" type="integer" default="20">
+  Number of concurrent threads used during active enumeration. Raise this on
+  fast targets to reduce scan time; lower it on rate-limited targets or when
+  using `--stealth`.
+
+  When `--stealth` is set and `--threads` is not explicitly provided, WPX
+  overrides this value to `1`.
+</ParamField>
+
+<ParamField path="--plugins-limit" type="integer">
+  Limit active plugin brute-force to the top N slugs from the ranked plugin
+  catalog. When omitted, WPX scans the top 200 slugs by default. Has no effect
+  when `--full-scan` is set.
+
+  ```bash
+  python3 wpx.py -u https://example.com --plugins-limit 500
+  ```
+</ParamField>
+
+<ParamField path="--full-scan" type="boolean" default="false">
+  Scan all available plugin slugs — up to 50,000+ entries from the full
+  historical plugin catalog. This can take several hours depending on thread
+  count and target responsiveness.
+
+  ```bash
+  python3 wpx.py -u https://example.com --full-scan --threads 50
+  ```
+</ParamField>
+
+<ParamField path="--users-limit" type="integer" default="10">
+  Upper bound for the `?author=N` author-ID probe. WPX walks author IDs from
+  `1` up to this value looking for valid WordPress users.
+
+  ```bash
+  # Probe author IDs 1–20
+  python3 wpx.py -u https://example.com --users-limit 20
+
+  # Disable author-ID probing entirely
+  python3 wpx.py -u https://example.com -e u --users-limit 0
+  ```
+</ParamField>
+
+<ParamField path="--no-browser" type="boolean" default="false">
+  Skip the Camoufox WAF bypass entirely and connect directly to the target
+  using a plain `curl_cffi` session. Use this when the target has no WAF
+  challenge or when you want a faster scan without a headless browser.
+
+  See [WAF bypass](/configuration/waf-bypass) for full details.
+</ParamField>
+
+<ParamField path="--stealth" type="float" default="1.5 (when flag is set)">
+  Enable stealth mode with a random per-request delay. The floor is always
+  `1` second; the ceiling is `2 × N` seconds. Omit the value to use the
+  default multiplier of `1.5` (giving 1–3 second delays).
+
+  See [Stealth mode](/configuration/stealth-mode) for full details.
+
+  ```bash
+  # Default: 1–3s delays
+  python3 wpx.py -u https://example.com --stealth
+
+  # Custom: 1–10s delays
+  python3 wpx.py -u https://example.com --stealth 5
+  ```
+</ParamField>
+
+<ParamField path="--idle-timeout" type="integer" default="60">
+  Abort the scan if no server response is received for N consecutive seconds.
+  Set to `0` to disable the timeout entirely. When `--stealth` is active, WPX
+  automatically raises this value to at least `int(stealth * 2) + 20` seconds
+  so that long delays do not trigger a false abort.
+</ParamField>
+
+---
+
+## Output
+
+<ParamField path="-q, --quiet" type="boolean" default="false">
+  Suppress the banner, status messages, and progress indicators. Only findings
+  are printed. Combine with `--output` for clean log files.
+
+  ```bash
+  python3 wpx.py -u https://example.com --quiet --output results.txt
+  ```
+</ParamField>
+
+<ParamField path="-o, --output" type="string">
+  Write scan output to a file in plain text without ANSI color codes. The
+  terminal still receives normal colored output.
+
+  ```bash
+  python3 wpx.py -u https://example.com -o /output/results.txt
+  ```
+</ParamField>
+
+---
+
+## Misc
+
+<ParamField path="--update" type="boolean" default="false">
+  Force a refresh of the WPScan metadata files (fingerprints, detection rules,
+  vulnerability data). You do not need a target URL for this operation.
+
+  ```bash
+  python3 wpx.py --update
+  ```
+</ParamField>
+
+<ParamField path="-h, --help" type="boolean" default="false">
+  Print the help text and exit.
+</ParamField>
+
+---
+
+## Plugin fetcher (`data/wpx_fetch_plugins.py`)
+
+The plugin fetcher builds and updates the ranked plugin slug lists that WPX
+uses for active enumeration. It combines the WordPress.org API, the SVN
+repository, and Archive.org to produce:
+
+- `data/plugins_active.txt` — top active plugins ranked by popularity score
+- `data/plugins_dead.txt` — top closed/removed plugins ranked by historical
+  install count
+
+```bash
+# Default run — fetch and rank using score
+python3 data/wpx_fetch_plugins.py
+
+# Change output sizes
+python3 data/wpx_fetch_plugins.py --active-limit 10000 --dead-limit 5000
+```
+
+<ParamField path="--sort-by" type="string" default="score">
+  Ranking method for active plugins written to `plugins_active.txt`.
+
+  | Value | Description |
+  |-------|-------------|
+  | `score` | Geometric mean of active installs × total downloads (default) |
+  | `active_installs` | Rank by current active install count |
+  | `downloaded` | Rank by total all-time download count |
+</ParamField>
+
+<ParamField path="--active-limit" type="integer" default="5000">
+  Number of active plugin slugs to write to `plugins_active.txt`. Set to `0`
+  to write all available slugs.
+</ParamField>
+
+<ParamField path="--dead-limit" type="integer" default="2500">
+  Number of closed/removed plugin slugs to write to `plugins_dead.txt`. Set
+  to `0` to write all available slugs.
+</ParamField>
+
+<ParamField path="--force" type="boolean" default="false">
+  Re-fetch all plugin data from the API even when a local catalog already
+  exists. Without this flag, the fetcher reuses cached data when it is fresher
+  than `--max-age` hours.
+</ParamField>
+
+<ParamField path="--fetch-limit" type="integer" default="0 (all)">
+  Stop after fetching N active plugins from the WordPress.org API. Useful for
+  quick test runs. Set to `0` to fetch everything.
+</ParamField>
+
+<ParamField path="--max-age" type="integer" default="24">
+  Skip the API fetch entirely if the local plugin catalog is fresher than N
+  hours. Set to `0` to always re-fetch.
+</ParamField>

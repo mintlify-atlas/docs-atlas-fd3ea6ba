@@ -1,0 +1,38 @@
+---
+title: Introduction
+description: WPX is a stealthy WordPress security scanner with WAF bypass, async plugin enumeration, user discovery, and vulnerability detection.
+keywords: [wpx, wordpress, security scanner, waf bypass, plugin enumeration, camoufox]
+---
+
+WPX (WordPress X-Ray) is an open-source command-line security scanner built for authorized WordPress penetration testing. It uses [Camoufox](https://camoufox.com) — a high-fidelity headless browser — to solve Cloudflare and WAF challenges, then mirrors the resulting session to perform fast, asynchronous enumeration of plugins, themes, users, and vulnerabilities.
+
+WPX is published on PyPI as `wordpress-xray` and installs as the `wpx` command. You can also run it without any local Python setup using the official Docker image.
+
+<Warning>
+  WPX is for **authorized security testing only**. Only scan WordPress sites you own or have explicit written permission to test. The developers are not responsible for misuse or any damage caused.
+</Warning>
+
+## Key capabilities
+
+**WAF and Cloudflare bypass** — Camoufox opens a real browser, solves JS challenges and CAPTCHAs, and extracts session cookies and the User-Agent string. The mirrored `curl_cffi` session inherits these tokens so every subsequent request is indistinguishable from the browser that passed the challenge.
+
+**Async plugin enumeration** — WPX brute-forces plugin slugs concurrently using `asyncio` and `curl_cffi`. The built-in catalog covers approximately 55,000 currently active plugins and 110,000 historical plugins (including removed and closed ones).
+
+**User enumeration** — Five independent techniques are tried in sequence: REST API (`/wp/v2/users`), author archive probing (`?author=N`), oEmbed endpoint, RSS feed, and passive HTML scan. Blocked methods are recorded as security improvements.
+
+**WPScan vulnerability database** — Provide a WPScan API key and WPX queries the WPScan Vulnerability Database for every detected plugin, filtering results to only the CVEs that apply to the installed version.
+
+**Stealth mode** — Configurable random delays and automatic thread throttling reduce the scan's footprint and help avoid rate-limiting or IP bans.
+
+**Docker support** — The official image at `ghcr.io/greg-randall/wpx` runs WPX with no local Python or dependency setup.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install WPX via pip or run it with Docker — no manual dependency wrangling required.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first scan in under two minutes with a single command.
+  </Card>
+</CardGroup>
